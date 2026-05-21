@@ -1,6 +1,7 @@
 # SyncedStudy 🍅
 
 A Pomodoro-based group study timer that lets everyone stay in sync remotely.
+(in progress should be deplyed by 2026 july)
 
 ## What it does
 
