@@ -24,11 +24,13 @@ const playChime = () => {
 };
 
 export default function App() {
+  const [mode, setMode] = useState(null); // null | 'join' | 'create'
   const [roomCode, setRoomCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [task, setTask] = useState("");
-  
+
   const [joined, setJoined] = useState(false);
+  const [joinError, setJoinError] = useState("");
   const [room, setRoom] = useState(null);
   const [chatInput, setChatInput] = useState("");
   
@@ -38,8 +40,21 @@ export default function App() {
 
   const chatEndRef = useRef(null);
 
+  const prevStateRef = useRef(null);
+  const pendingJoinRef = useRef(false);
+
   useEffect(() => {
     socket.on("room_sync", (data) => {
+      // If a guest was waiting for confirmation, admit them now
+      if (pendingJoinRef.current) {
+        pendingJoinRef.current = false;
+        setJoined(true);
+      }
+      // Play chime when a work session just completed
+      if (prevStateRef.current !== 'pomodoroComplete' && data.state === 'pomodoroComplete') {
+        playChime();
+      }
+      prevStateRef.current = data.state;
       setRoom(data);
       if (data.settings) {
         setSettingsForm({
@@ -50,12 +65,17 @@ export default function App() {
       }
     });
 
+    socket.on("join_error", ({ message }) => {
+      setJoinError(message);
+    });
+
     socket.on("session_ended", ({ newSessionType }) => {
-      playChime();
+      // chime is now handled via room_sync state detection above
     });
 
     return () => {
       socket.off("room_sync");
+      socket.off("join_error");
       socket.off("session_ended");
     };
   }, []);
@@ -66,11 +86,26 @@ export default function App() {
     }
   }, [room?.chatMessages]);
 
+  const generateRoomCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars like 0/O, 1/I
+    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  };
+
+  const openNewLobby = () => {
+    setRoomCode(generateRoomCode());
+    setMode('create');
+  };
+
   const joinRoom = (e) => {
     e.preventDefault();
     if (!roomCode || !displayName) return;
-    socket.emit("join_room", { roomCode, displayName, task });
-    setJoined(true);
+    setJoinError("");
+    socket.emit("join_room", { roomCode, displayName, task, isHost: mode === 'create' });
+    if (mode === 'create') {
+      setJoined(true); // host always gets in immediately
+    } else {
+      pendingJoinRef.current = true; // guest waits for server confirmation
+    }
   };
 
   const handleUpdateTask = (e) => {
@@ -92,20 +127,198 @@ export default function App() {
   };
 
   if (!joined) {
+    // ── Landing: pick a mode ──────────────────────────────────────────
+    if (!mode) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem' }}>
+          <div className="animate-fade-in" style={{ width: '100%', maxWidth: '520px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+              <h1 style={{ color: 'var(--accent-work)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '0.5rem' }}>
+                <Clock size={36} /> SyncedStudy
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem' }}>Focus together, in sync.</p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1.25rem' }}>
+              {/* Join card */}
+              <button
+                onClick={() => { setRoomCode(''); setMode('join'); }}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '1rem',
+                  padding: '2rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '16px',
+                  transition: 'all 0.2s ease',
+                  color: 'inherit',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = 'var(--accent-work)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.07)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '1.5rem'
+                }}>🔑</div>
+                <div>
+                  <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: 'var(--text-primary)' }}>Join a Session</h3>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Have a room code? Enter it to jump into an existing study lobby.
+                  </p>
+                </div>
+              </button>
+
+              {/* Create card */}
+              <button
+                onClick={openNewLobby}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '1rem',
+                  padding: '2rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '16px',
+                  transition: 'all 0.2s ease',
+                  color: 'inherit',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = 'var(--accent-work)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.07)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '1.5rem'
+                }}>🚀</div>
+                <div>
+                  <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: 'var(--text-primary)' }}>Open New Lobby</h3>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    Generate a unique room code and invite friends to study with you.
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Create Lobby ──────────────────────────────────────────────────
+    if (mode === 'create') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem' }}>
+          <div className="glass animate-fade-in" style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}>
+            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '1.5rem', padding: 0, fontSize: '0.9rem' }}>
+              ← Back
+            </button>
+
+            <h2 style={{ margin: '0 0 0.5rem', color: 'var(--accent-work)' }}>Open New Lobby</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.9rem' }}>Share this code with your friends so they can join.</p>
+
+            {/* Generated code display */}
+            <div style={{
+              background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)',
+              borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem', textAlign: 'center'
+            }}>
+              <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Your Room Code</p>
+              <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '8px', color: 'var(--accent-work)', margin: '0.5rem 0' }}>
+                {roomCode}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                  onClick={() => navigator.clipboard.writeText(roomCode)}
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                  onClick={() => setRoomCode(generateRoomCode())}
+                >
+                  Regenerate
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={joinRoom} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Your Display Name</label>
+                <input required placeholder="Your Name" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Current Task (Optional)</label>
+                <input placeholder="What are you working on?" value={task} onChange={e => setTask(e.target.value)} />
+              </div>
+              <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem', width: '100%' }}>
+                Open Lobby
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Join Session ──────────────────────────────────────────────────
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem' }}>
-        <div className="glass animate-fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <h1 style={{ color: 'var(--accent-work)', fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-              <Clock size={32} /> SyncedStudy
-            </h1>
-            <p>Focus together, in sync.</p>
-          </div>
-          
+        <div className="glass animate-fade-in" style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}>
+          <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '1.5rem', padding: 0, fontSize: '0.9rem' }}>
+            ← Back
+          </button>
+
+          <h2 style={{ margin: '0 0 0.5rem', color: 'var(--accent-work)' }}>Join a Session</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.9rem' }}>Enter the room code shared with you.</p>
+
           <form onSubmit={joinRoom} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Room Code</label>
-              <input required placeholder="e.g. study123" value={roomCode} onChange={e => setRoomCode(e.target.value)} />
+              <input
+                required
+                placeholder="e.g. ABC123"
+                value={roomCode}
+                onChange={e => { setRoomCode(e.target.value.toUpperCase()); setJoinError(""); }}
+                style={{
+                  letterSpacing: '3px', fontWeight: 700, fontSize: '1.1rem',
+                  borderColor: joinError ? 'rgba(255,80,80,0.6)' : undefined
+                }}
+              />
+              {joinError && (
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#ff6b6b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⚠ {joinError}
+                </p>
+              )}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Display Name</label>
@@ -115,7 +328,7 @@ export default function App() {
               <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Current Task (Optional)</label>
               <input placeholder="What are you working on?" value={task} onChange={e => setTask(e.target.value)} />
             </div>
-            <button type="submit" className="btn-primary" style={{ marginTop: '1rem', width: '100%' }}>Join Room</button>
+            <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem', width: '100%' }}>Join Room</button>
           </form>
         </div>
       </div>
@@ -163,6 +376,27 @@ export default function App() {
             {isHost && (
               <button className="btn-secondary" style={{ padding: '8px' }} onClick={() => setShowSettings(true)} title="Settings">
                 <Settings size={20} />
+              </button>
+            )}
+            {isHost && (
+              <button
+                onClick={() => socket.emit("end_session", { roomCode })}
+                style={{
+                  padding: '8px 16px',
+                  background: 'rgba(255,80,80,0.15)',
+                  border: '1px solid rgba(255,80,80,0.4)',
+                  borderRadius: '8px',
+                  color: '#ff6b6b',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                title="End Session"
+              >
+                <X size={16} /> End Session
               </button>
             )}
           </div>
@@ -298,6 +532,149 @@ export default function App() {
         </aside>
 
       </div>
+
+      {/* Pomodoro Complete Mini-Summary Overlay */}
+      {room.state === 'pomodoroComplete' && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60
+        }}>
+          <div className="glass animate-fade-in" style={{ width: '480px', maxWidth: '90%', padding: '2.5rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🎉</div>
+            <h2 style={{ color: currentAccent, margin: '0 0 0.5rem' }}>
+              Pomodoro #{room.pomodoroCount} Complete!
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
+              {room.nextSessionType === 'longBreak'
+                ? `Great work — you've earned a ${Math.round(room.settings.longBreak / 60)}-minute long break!`
+                : `Nice focus — take a ${Math.round(room.settings.shortBreak / 60)}-minute short break.`}
+            </p>
+
+            {/* Per-user focus stats */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem', textAlign: 'left' }}>
+              {Object.entries(room.users).map(([id, u]) => (
+                <div key={id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.75rem 1rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  borderRadius: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <User size={16} color="var(--text-secondary)" />
+                    <span style={{ fontWeight: 600 }}>{u.displayName}</span>
+                    {id === socket.id && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>(You)</span>}
+                  </div>
+                  <div style={{ color: currentAccent, fontWeight: 600 }}>
+                    {Math.floor(u.totalFocusTime / 60)}m focused
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {isHost ? (
+              <button
+                className="btn-primary"
+                style={{ width: '100%', backgroundColor: currentAccent, boxShadow: `0 4px 14px ${currentBg}` }}
+                onClick={() => socket.emit("start_break", { roomCode })}
+              >
+                Start {room.nextSessionType === 'longBreak' ? 'Long' : 'Short'} Break
+              </button>
+            ) : (
+              <p style={{ color: 'var(--text-secondary)' }}>Waiting for host to start the break...</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Full Session Summary Overlay */}
+      {room.state === 'ended' && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70,
+          overflowY: 'auto', padding: '2rem'
+        }}>
+          <div className="glass animate-fade-in" style={{ width: '600px', maxWidth: '95%', padding: '2.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🏁</div>
+              <h2 style={{ color: currentAccent, margin: '0 0 0.25rem' }}>Session Complete!</h2>
+              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+                {room.pomodoroCount} Pomodoro{room.pomodoroCount !== 1 ? 's' : ''} completed
+              </p>
+            </div>
+
+            {/* Per-user stats grid */}
+            <h4 style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '1rem' }}>
+              Participants
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
+              {Object.entries(room.users).map(([id, u]) => (
+                <div key={id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '1rem 1.25rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  borderRadius: '12px',
+                  borderLeft: `3px solid ${id === room.hostSocketId ? currentAccent : 'transparent'}`
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <User size={15} color="var(--text-secondary)" />
+                      <strong>{u.displayName}</strong>
+                      {id === socket.id && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>(You)</span>}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', paddingLeft: '23px' }}>
+                      {u.task || 'No task set'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: currentAccent, fontWeight: 700, fontSize: '1.1rem' }}>
+                      {Math.floor(u.totalFocusTime / 60)}m
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>focused</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Task history timeline */}
+            {room.taskHistory.length > 0 && (
+              <>
+                <h4 style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '1rem' }}>
+                  Task History
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {room.taskHistory.map((th, i) => (
+                    <div key={i} style={{
+                      display: 'flex', gap: '12px', alignItems: 'flex-start',
+                      padding: '0.6rem 1rem',
+                      background: 'rgba(255,255,255,0.03)',
+                      borderRadius: '8px'
+                    }}>
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: currentAccent, marginTop: '7px', flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600, color: currentAccent, marginRight: '8px' }}>{th.displayName}</span>
+                        <span>{th.task}</span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', flexShrink: 0 }}>
+                        {new Date(th.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button
+              className="btn-primary"
+              style={{ width: '100%' }}
+              onClick={() => { setJoined(false); setRoom(null); setRoomCode(''); setDisplayName(''); setTask(''); }}
+            >
+              Leave Room
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modals overlay */}
       {(showHistory || showSettings) && (

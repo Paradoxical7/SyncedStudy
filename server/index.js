@@ -10,6 +10,8 @@ app.use(express.json());
 app.get("/", (req, res) => res.json({ status: "SyncedStudy server is running" }));
 
 const rooms = {};
+const MAX_ROOMS = 30;
+const messageCooldowns = {}; // socketId -> last message timestamp
 
 const DEFAULT_SESSION_TIMES = {
   work: 25 * 60,
@@ -18,15 +20,28 @@ const DEFAULT_SESSION_TIMES = {
 };
 
 io.on("connection", (socket) => {
-  socket.on("join_room", ({ roomCode, displayName, task }) => {
+  socket.on("join_room", ({ roomCode, displayName, task, isHost }) => {
+    // If joining (not creating), the room must already exist
+    if (!isHost && !rooms[roomCode]) {
+      socket.emit("join_error", { message: "Room not found. Check the code and try again." });
+      return;
+    }
+
+    // If creating, check server capacity
+    if (isHost && !rooms[roomCode] && Object.keys(rooms).length >= MAX_ROOMS) {
+      socket.emit("join_error", { message: "The server is full right now. Try again later." });
+      return;
+    }
+
     socket.join(roomCode);
-    
+
     if (!rooms[roomCode]) {
+      // Only the host can create a new room
       rooms[roomCode] = {
         users: {},
         hostSocketId: socket.id,
-        state: 'idle', // idle, running, paused
-        sessionType: 'work', // work, shortBreak, longBreak
+        state: 'idle',
+        sessionType: 'work',
         settings: { ...DEFAULT_SESSION_TIMES },
         timeLeft: DEFAULT_SESSION_TIMES.work,
         pomodoroCount: 0,
@@ -34,9 +49,9 @@ io.on("connection", (socket) => {
         taskHistory: []
       };
     }
-    
+
     rooms[roomCode].users[socket.id] = { displayName, task, totalFocusTime: 0 };
-    
+
     if (task) {
       rooms[roomCode].taskHistory.push({ displayName, task, timestamp: Date.now() });
     }
@@ -57,10 +72,14 @@ io.on("connection", (socket) => {
 
   socket.on("send_message", ({ roomCode, text }) => {
     if (rooms[roomCode] && rooms[roomCode].users[socket.id]) {
+      const now = Date.now();
+      const lastSent = messageCooldowns[socket.id] || 0;
+      if (now - lastSent < 1000) return; // silently drop if under 1 second
+      messageCooldowns[socket.id] = now;
+
       const user = rooms[roomCode].users[socket.id];
-      const message = { id: Date.now(), sender: user.displayName, text, timestamp: Date.now() };
+      const message = { id: now, sender: user.displayName, text, timestamp: now };
       rooms[roomCode].chatMessages.push(message);
-      // keep only last 50 messages
       if (rooms[roomCode].chatMessages.length > 50) rooms[roomCode].chatMessages.shift();
       io.to(roomCode).emit("room_sync", rooms[roomCode]);
     }
@@ -93,7 +112,27 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("start_break", ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (room && room.hostSocketId === socket.id && room.state === 'pomodoroComplete') {
+      room.sessionType = room.nextSessionType;
+      room.timeLeft = room.settings[room.nextSessionType];
+      room.state = 'idle';
+      delete room.nextSessionType;
+      io.to(roomCode).emit("room_sync", room);
+    }
+  });
+
+  socket.on("end_session", ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (room && room.hostSocketId === socket.id) {
+      room.state = 'ended';
+      io.to(roomCode).emit("room_sync", room);
+    }
+  });
+
   socket.on("disconnect", () => {
+    delete messageCooldowns[socket.id];
     for (const roomCode in rooms) {
       const room = rooms[roomCode];
       if (room.users[socket.id]) {
@@ -129,22 +168,18 @@ setInterval(() => {
       }
 
       if (room.timeLeft <= 0) {
-        room.state = 'idle';
         if (room.sessionType === 'work') {
           room.pomodoroCount += 1;
-          if (room.pomodoroCount % 4 === 0) {
-            room.sessionType = 'longBreak';
-            room.timeLeft = room.settings.longBreak;
-          } else {
-            room.sessionType = 'shortBreak';
-            room.timeLeft = room.settings.shortBreak;
-          }
+          // Pause in pomodoroComplete state so a summary can be shown
+          room.state = 'pomodoroComplete';
+          room.nextSessionType = room.pomodoroCount % 4 === 0 ? 'longBreak' : 'shortBreak';
+          room.timeLeft = 0;
         } else {
           // Break ended, back to work
+          room.state = 'idle';
           room.sessionType = 'work';
           room.timeLeft = room.settings.work;
         }
-        // Emit an event specifically for session end (for audio alerts on client)
         io.to(roomCode).emit("session_ended", { newSessionType: room.sessionType });
       }
       io.to(roomCode).emit("room_sync", room);
