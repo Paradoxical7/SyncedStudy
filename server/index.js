@@ -27,6 +27,12 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // Check if room is full (max 6 people)
+    if (rooms[roomCode] && Object.keys(rooms[roomCode].users).length >= 6) {
+      socket.emit("join_error", { message: "This room is full. Max 6 people per session." });
+      return;
+    }
+
     // If creating, check server capacity
     if (isHost && !rooms[roomCode] && Object.keys(rooms).length >= MAX_ROOMS) {
       socket.emit("join_error", { message: "The server is full right now. Try again later." });
