@@ -176,10 +176,7 @@ export default function App() {
                   fontSize: '1.5rem'
                 }}>🔑</div>
                 <div>
-                  <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: 'var(--text-primary)' }}>Join a Session</h3>
-                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    Have a room code? Enter it to jump into an existing study lobby.
-                  </p>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Join a Session</h3>
                 </div>
               </button>
 
@@ -219,10 +216,7 @@ export default function App() {
                   fontSize: '1.5rem'
                 }}>🚀</div>
                 <div>
-                  <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.1rem', color: 'var(--text-primary)' }}>Open New Lobby</h3>
-                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    Generate a unique room code and invite friends to study with you.
-                  </p>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Open New Lobby</h3>
                 </div>
               </button>
             </div>
