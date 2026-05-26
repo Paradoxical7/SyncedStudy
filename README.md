@@ -1,15 +1,20 @@
 # SyncedStudy 🍅
 
 A Pomodoro-based group study timer that lets everyone stay in sync remotely.
-(in progress should be deplyed by 2026 july)
+
+🌐 **Live at: https://synced-study.vercel.app**
 
 ## What it does
 
-- Create or join a shared study room
-- Synced Pomodoro timer visible to the whole group
-- See what everyone is working on in real time
-- Chat sidebar to communicate without breaking focus
-- Session summary with focus time and task history at the end
+- Create a lobby with a randomly generated room code or join one with an existing code
+- Synced Pomodoro timer (25 min work, 5 min short break, 15 min long break after 4 sessions)
+- Live participant list showing everyone's name and current task
+- Host controls to start, pause, reset the timer and customize session durations
+- Switch tasks mid-session with full task history logged throughout
+- Mini summary card after each Pomodoro with per-user focus time
+- Full session summary screen when the host ends the session
+- Sidebar chat for quick messages during a session
+- Max 6 people per room, max 30 active rooms on the server
 
 ## Tech Stack
 
@@ -18,9 +23,7 @@ A Pomodoro-based group study timer that lets everyone stay in sync remotely.
 | Frontend | React |
 | Backend | Node.js + Express |
 | Real-time | Socket.io |
-| Database | PostgreSQL |
-| Cache | Redis |
-| Deployment | Render |
+| Deployment | Railway (server) + Vercel (client) |
 
 ## Project Structure
 
@@ -30,13 +33,13 @@ syncedstudy/
 └── server/       # Node.js + Express backend
 ```
 
-## Getting Started
+## Running Locally
 
 ### Server
 ```bash
 cd server
 npm install
-npm run dev
+node index.js
 ```
 
 ### Client
@@ -46,6 +49,18 @@ npm install
 npm start
 ```
 
+## Environment Variables
+
+### Server
+```
+CLIENT_URL=https://your-client-url.com
+```
+
+### Client
+```
+REACT_APP_SERVER_URL=https://your-server-url.com
+```
+
 ## Status
 
-🚧 In development
+✅ v1 Live
