@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { Play, Pause, RotateCcw, Send, Users, MessageSquare, Clock, User, CheckCircle2, Settings, History, X } from "lucide-react";
 
-const socket = io("http://localhost:4000");
+const socket = io(process.env.REACT_APP_SERVER_URL || "http://localhost:4000");
 
 const playChime = () => {
   try {
