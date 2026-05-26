@@ -148,8 +148,8 @@ export default function App() {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'flex-start',
-                  gap: '1rem',
-                  padding: '2rem',
+                  gap: '1.5rem',
+                  padding: '2.5rem',
                   cursor: 'pointer',
                   textAlign: 'left',
                   background: 'rgba(255,255,255,0.04)',
@@ -170,13 +170,13 @@ export default function App() {
                 }}
               >
                 <div style={{
-                  width: '48px', height: '48px', borderRadius: '12px',
+                  width: '60px', height: '60px', borderRadius: '14px',
                   background: 'rgba(255,255,255,0.07)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '1.5rem'
+                  fontSize: '1.8rem'
                 }}>🔑</div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Join a Session</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Join a Session</h3>
                 </div>
               </button>
 
@@ -188,8 +188,8 @@ export default function App() {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'flex-start',
-                  gap: '1rem',
-                  padding: '2rem',
+                  gap: '1.5rem',
+                  padding: '2.5rem',
                   cursor: 'pointer',
                   textAlign: 'left',
                   background: 'rgba(255,255,255,0.04)',
@@ -210,13 +210,13 @@ export default function App() {
                 }}
               >
                 <div style={{
-                  width: '48px', height: '48px', borderRadius: '12px',
+                  width: '60px', height: '60px', borderRadius: '14px',
                   background: 'rgba(255,255,255,0.07)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '1.5rem'
+                  fontSize: '1.8rem'
                 }}>🚀</div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Open New Lobby</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Open New Lobby</h3>
                 </div>
               </button>
             </div>
