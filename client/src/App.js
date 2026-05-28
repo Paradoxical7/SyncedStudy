@@ -37,11 +37,19 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ work: 25, shortBreak: 5, longBreak: 15 });
+  const [activeTab, setActiveTab] = useState('timer'); // 'timer' | 'participants' | 'chat'
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   const chatEndRef = useRef(null);
 
   const prevStateRef = useRef(null);
   const pendingJoinRef = useRef(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     socket.on("room_sync", (data) => {
@@ -139,7 +147,7 @@ export default function App() {
               <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem' }}>Focus together, in sync.</p>
             </div>
 
-            <div style={{ display: 'flex', gap: '1.25rem' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '1.25rem' }}>
               {/* Join card */}
               <button
                 onClick={() => { setRoomCode(''); setMode('join'); }}
@@ -346,186 +354,263 @@ export default function App() {
     sessionLabel = "Long Break";
   }
 
+  // ── Reusable panel components ──────────────────────────────────────
+  const ParticipantsPanel = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem' }}>
+        <Users size={20} /> Participants ({Object.keys(room.users).length})
+      </h3>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {Object.entries(room.users).map(([id, u]) => (
+          <div key={id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', borderLeft: id === room.hostSocketId ? `3px solid ${currentAccent}` : '3px solid transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <User size={16} color="var(--text-secondary)" />
+              <strong style={{ fontSize: '1.1rem' }}>{u.displayName} {id === socket.id && "(You)"}</strong>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              <CheckCircle2 size={14} style={{ marginTop: '3px', flexShrink: 0 }} />
+              <span>{u.task || "No task set"}</span>
+            </div>
+            <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Focus: {Math.floor(u.totalFocusTime / 60)}m
+            </div>
+          </div>
+        ))}
+      </div>
+      <form onSubmit={handleUpdateTask} style={{ marginTop: '1.5rem' }}>
+        <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Update your task</p>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input value={task} onChange={e => setTask(e.target.value)} placeholder="New task..." style={{ flex: 1 }} />
+          <button type="submit" className="btn-secondary" style={{ padding: '0 12px' }}>Set</button>
+        </div>
+      </form>
+    </div>
+  );
+
+  const timerSize = isMobile ? '260px' : '350px';
+  const timerFontSize = isMobile ? '3.5rem' : '6rem';
+
+  const TimerPanel = (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+      <div style={{
+        width: timerSize, height: timerSize,
+        borderRadius: '50%',
+        background: `radial-gradient(circle, transparent 40%, ${currentBg} 150%)`,
+        border: `2px solid ${currentAccent}`,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        boxShadow: `0 0 60px ${currentBg}`,
+        transition: 'all 0.5s ease',
+        marginBottom: isMobile ? '2rem' : '3rem'
+      }}>
+        <p style={{ color: currentAccent, fontSize: isMobile ? '1rem' : '1.25rem', fontWeight: 600, letterSpacing: '1px', marginBottom: '0.5rem' }}>
+          {sessionLabel.toUpperCase()}
+        </p>
+        <div style={{ fontSize: timerFontSize, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+          {formatTime(room.timeLeft)}
+        </div>
+        <p style={{ marginTop: '1rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: isMobile ? '0.85rem' : '1rem' }}>
+          {room.state === 'running' ? 'Timer is running' : 'Timer is paused'}
+        </p>
+      </div>
+      {isHost ? (
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          {room.state === 'running' ? (
+            <button className="btn-secondary" onClick={() => socket.emit("timer_control", { roomCode, action: 'pause' })} style={{ width: '120px' }}>
+              <Pause size={20} /> Pause
+            </button>
+          ) : (
+            <button className="btn-primary" onClick={() => socket.emit("timer_control", { roomCode, action: 'start' })} style={{ width: '120px', backgroundColor: currentAccent, boxShadow: `0 4px 14px ${currentBg}` }}>
+              <Play size={20} fill="currentColor" /> Start
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => socket.emit("timer_control", { roomCode, action: 'reset' })} style={{ width: '120px' }}>
+            <RotateCcw size={20} /> Reset
+          </button>
+        </div>
+      ) : (
+        <div style={{ color: 'var(--text-secondary)' }}>Waiting for host to control timer...</div>
+      )}
+    </div>
+  );
+
+  const ChatPanel = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {!isMobile && (
+        <div style={{ paddingBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', marginBottom: '0' }}>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <MessageSquare size={20} /> Room Chat
+          </h3>
+        </div>
+      )}
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0' : '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {room.chatMessages.map((msg) => (
+          <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: msg.sender === displayName ? currentAccent : 'var(--text-primary)' }}>{msg.sender}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <div style={{
+              background: msg.sender === displayName ? `rgba(255,255,255,0.1)` : 'rgba(0,0,0,0.2)',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              borderTopLeftRadius: msg.sender === displayName ? '12px' : '4px',
+              borderTopRightRadius: msg.sender === displayName ? '4px' : '12px',
+              fontSize: '0.95rem'
+            }}>
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        <div ref={chatEndRef} />
+      </div>
+      <form onSubmit={handleSendMessage} style={{ paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px' }}>
+        <input
+          value={chatInput}
+          onChange={e => setChatInput(e.target.value)}
+          placeholder="Type a message..."
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="btn-primary" style={{ padding: '0 16px', background: currentAccent }}>
+          <Send size={18} />
+        </button>
+      </form>
+    </div>
+  );
+
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: '2rem', gap: '2rem' }}>
-      
+    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100vh', padding: isMobile ? '0.75rem' : '2rem', gap: isMobile ? '0.75rem' : '2rem' }}>
+
       {/* Header */}
-      <header className="glass" style={{ padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Clock color={currentAccent} /> SyncedStudy
-        </h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Room</p>
-            <strong style={{ fontSize: '1.25rem', letterSpacing: '2px' }}>{roomCode}</strong>
+      {isMobile ? (
+        <header className="glass" style={{ padding: '0.75rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Clock size={18} color={currentAccent} />
+            <strong style={{ letterSpacing: '2px', fontSize: '1rem' }}>{roomCode}</strong>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>#{room.pomodoroCount}</span>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Pomodoros</p>
-            <strong style={{ fontSize: '1.25rem' }}>{room.pomodoroCount}</strong>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '2rem' }}>
-            <button className="btn-secondary" style={{ padding: '8px' }} onClick={() => setShowHistory(true)} title="Task History">
-              <History size={20} />
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button className="btn-secondary" style={{ padding: '6px' }} onClick={() => setShowHistory(true)} title="Task History">
+              <History size={18} />
             </button>
             {isHost && (
-              <button className="btn-secondary" style={{ padding: '8px' }} onClick={() => setShowSettings(true)} title="Settings">
-                <Settings size={20} />
+              <button className="btn-secondary" style={{ padding: '6px' }} onClick={() => setShowSettings(true)} title="Settings">
+                <Settings size={18} />
               </button>
             )}
             {isHost && (
               <button
                 onClick={() => socket.emit("end_session", { roomCode })}
-                style={{
-                  padding: '8px 16px',
-                  background: 'rgba(255,80,80,0.15)',
-                  border: '1px solid rgba(255,80,80,0.4)',
-                  borderRadius: '8px',
-                  color: '#ff6b6b',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-                title="End Session"
+                style={{ padding: '6px 10px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.4)', borderRadius: '8px', color: '#ff6b6b', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
               >
-                <X size={16} /> End Session
+                <X size={14} /> End
               </button>
             )}
           </div>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <div style={{ display: 'flex', flex: 1, gap: '2rem', minHeight: 0 }}>
-        
-        {/* Left Sidebar: Participants & Tasks */}
-        <aside className="glass" style={{ width: '300px', display: 'flex', flexDirection: 'column', padding: '1.5rem' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem' }}>
-            <Users size={20} /> Participants ({Object.keys(room.users).length})
-          </h3>
-          
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {Object.entries(room.users).map(([id, u]) => (
-              <div key={id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', borderLeft: id === room.hostSocketId ? `3px solid ${currentAccent}` : '3px solid transparent' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <User size={16} color="var(--text-secondary)" />
-                  <strong style={{ fontSize: '1.1rem' }}>{u.displayName} {id === socket.id && "(You)"}</strong>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  <CheckCircle2 size={14} style={{ marginTop: '3px', flexShrink: 0 }} />
-                  <span>{u.task || "No task set"}</span>
-                </div>
-                <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Focus: {Math.floor(u.totalFocusTime / 60)}m
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <form onSubmit={handleUpdateTask} style={{ marginTop: '1.5rem' }}>
-            <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Update your task</p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input value={task} onChange={e => setTask(e.target.value)} placeholder="New task..." style={{ flex: 1 }} />
-              <button type="submit" className="btn-secondary" style={{ padding: '0 12px' }}>Set</button>
+        </header>
+      ) : (
+        <header className="glass" style={{ padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Clock color={currentAccent} /> SyncedStudy
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Room</p>
+              <strong style={{ fontSize: '1.25rem', letterSpacing: '2px' }}>{roomCode}</strong>
             </div>
-          </form>
-        </aside>
-
-        {/* Center: Timer */}
-        <main className="glass" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-          
-          <div style={{ 
-            width: '350px', height: '350px', 
-            borderRadius: '50%', 
-            background: `radial-gradient(circle, transparent 40%, ${currentBg} 150%)`,
-            border: `2px solid ${currentAccent}`,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            boxShadow: `0 0 60px ${currentBg}`,
-            transition: 'all 0.5s ease',
-            marginBottom: '3rem'
-          }}>
-            <p style={{ color: currentAccent, fontSize: '1.25rem', fontWeight: 600, letterSpacing: '1px', marginBottom: '0.5rem' }}>
-              {sessionLabel.toUpperCase()}
-            </p>
-            <div style={{ fontSize: '6rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-              {formatTime(room.timeLeft)}
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Pomodoros</p>
+              <strong style={{ fontSize: '1.25rem' }}>{room.pomodoroCount}</strong>
             </div>
-            <p style={{ marginTop: '1rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {room.state === 'running' ? 'Timer is running' : 'Timer is paused'}
-            </p>
-          </div>
-
-          {isHost ? (
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              {room.state === 'running' ? (
-                <button className="btn-secondary" onClick={() => socket.emit("timer_control", { roomCode, action: 'pause' })} style={{ width: '120px' }}>
-                  <Pause size={20} /> Pause
-                </button>
-              ) : (
-                <button className="btn-primary" onClick={() => socket.emit("timer_control", { roomCode, action: 'start' })} style={{ width: '120px', backgroundColor: currentAccent, boxShadow: `0 4px 14px ${currentBg}` }}>
-                  <Play size={20} fill="currentColor" /> Start
+            <div style={{ display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '2rem' }}>
+              <button className="btn-secondary" style={{ padding: '8px' }} onClick={() => setShowHistory(true)} title="Task History">
+                <History size={20} />
+              </button>
+              {isHost && (
+                <button className="btn-secondary" style={{ padding: '8px' }} onClick={() => setShowSettings(true)} title="Settings">
+                  <Settings size={20} />
                 </button>
               )}
-              <button className="btn-secondary" onClick={() => socket.emit("timer_control", { roomCode, action: 'reset' })} style={{ width: '120px' }}>
-                <RotateCcw size={20} /> Reset
-              </button>
+              {isHost && (
+                <button
+                  onClick={() => socket.emit("end_session", { roomCode })}
+                  style={{ padding: '8px 16px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.4)', borderRadius: '8px', color: '#ff6b6b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  title="End Session"
+                >
+                  <X size={16} /> End Session
+                </button>
+              )}
             </div>
-          ) : (
-            <div style={{ color: 'var(--text-secondary)' }}>
-              Waiting for host to control timer...
-            </div>
-          )}
-
-        </main>
-
-        {/* Right Sidebar: Chat */}
-        <aside className="glass" style={{ width: '350px', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)' }}>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <MessageSquare size={20} /> Room Chat
-            </h3>
           </div>
-          
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {room.chatMessages.map((msg) => (
-              <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: msg.sender === displayName ? currentAccent : 'var(--text-primary)' }}>{msg.sender}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <div style={{ 
-                  background: msg.sender === displayName ? `rgba(255,255,255,0.1)` : 'rgba(0,0,0,0.2)', 
-                  padding: '10px 14px', 
-                  borderRadius: '12px',
-                  borderTopLeftRadius: msg.sender === displayName ? '12px' : '4px',
-                  borderTopRightRadius: msg.sender === displayName ? '4px' : '12px',
-                  fontSize: '0.95rem'
-                }}>
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
+        </header>
+      )}
 
-          <form onSubmit={handleSendMessage} style={{ padding: '1.5rem', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px' }}>
-            <input 
-              value={chatInput} 
-              onChange={e => setChatInput(e.target.value)} 
-              placeholder="Type a message..." 
-              style={{ flex: 1 }} 
-            />
-            <button type="submit" className="btn-primary" style={{ padding: '0 16px', background: currentAccent }}>
-              <Send size={18} />
+      {/* Main Content Area */}
+      {isMobile ? (
+        // ── Mobile: single panel based on activeTab ──────────────────
+        <div className="glass" style={{ flex: 1, padding: '1.25rem', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          {activeTab === 'participants' && ParticipantsPanel}
+          {activeTab === 'timer' && TimerPanel}
+          {activeTab === 'chat' && ChatPanel}
+        </div>
+      ) : (
+        // ── Desktop: three-column layout ─────────────────────────────
+        <div style={{ display: 'flex', flex: 1, gap: '2rem', minHeight: 0 }}>
+          <aside className="glass" style={{ width: '300px', display: 'flex', flexDirection: 'column', padding: '1.5rem' }}>
+            {ParticipantsPanel}
+          </aside>
+          <main className="glass" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+            {TimerPanel}
+          </main>
+          <aside className="glass" style={{ width: '350px', display: 'flex', flexDirection: 'column', padding: '1.5rem' }}>
+            {ChatPanel}
+          </aside>
+        </div>
+      )}
+
+      {/* Mobile Bottom Tab Bar */}
+      {isMobile && (
+        <nav style={{
+          display: 'flex',
+          background: 'rgba(20,20,30,0.95)',
+          borderTop: '1px solid var(--border-color)',
+          borderRadius: '16px 16px 0 0',
+          overflow: 'hidden',
+          flexShrink: 0,
+        }}>
+          {[
+            { id: 'participants', icon: <Users size={22} />, label: 'People' },
+            { id: 'timer', icon: <Clock size={22} />, label: 'Timer' },
+            { id: 'chat', icon: <MessageSquare size={22} />, label: 'Chat' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                padding: '12px 0',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: activeTab === tab.id ? currentAccent : 'var(--text-secondary)',
+                borderTop: activeTab === tab.id ? `2px solid ${currentAccent}` : '2px solid transparent',
+                transition: 'color 0.2s ease',
+                fontSize: '0.75rem',
+                fontWeight: activeTab === tab.id ? 600 : 400,
+              }}
+            >
+              {tab.icon}
+              {tab.label}
             </button>
-          </form>
-        </aside>
-
-      </div>
+          ))}
+        </nav>
+      )}
 
       {/* Pomodoro Complete Mini-Summary Overlay */}
       {room.state === 'pomodoroComplete' && (
