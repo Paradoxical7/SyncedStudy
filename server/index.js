@@ -24,6 +24,13 @@ const DEFAULT_SESSION_TIMES = {
 
 io.on("connection", (socket) => {
   socket.on("join_room", ({ roomCode, displayName, task, isHost }) => {
+    // Sanitize and enforce input length limits
+    if (typeof displayName !== 'string' || !displayName.trim()) return;
+    displayName = displayName.trim().slice(0, 30);
+    if (typeof task === 'string') task = task.trim().slice(0, 120);
+    if (typeof roomCode !== 'string') return;
+    roomCode = roomCode.trim().toUpperCase().slice(0, 6);
+
     // If joining (not creating), the room must already exist
     if (!isHost && !rooms[roomCode]) {
       socket.emit("join_error", { message: "Room not found. Check the code and try again." });
@@ -63,6 +70,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("update_task", ({ roomCode, task }) => {
+    if (typeof task !== 'string') return;
+    task = task.trim().slice(0, 120);
     if (rooms[roomCode] && rooms[roomCode].users[socket.id]) {
       const user = rooms[roomCode].users[socket.id];
       user.task = task;
@@ -74,6 +83,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("send_message", ({ roomCode, text }) => {
+    if (typeof text !== 'string' || !text.trim()) return;
+    text = text.trim().slice(0, 500);
     if (rooms[roomCode] && rooms[roomCode].users[socket.id]) {
       const now = Date.now();
       const lastSent = messageCooldowns[socket.id] || 0;
